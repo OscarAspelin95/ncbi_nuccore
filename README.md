@@ -3,5 +3,4 @@ Download NCBI accession from nuccore
 
 ## Usage
 The easiest way to get started is to use the `uv` package manager.
-`uv venv`
 `uv run main.py`

@@ -1,28 +1,41 @@
 import argparse
-import logging
 from pathlib import Path
+
+from yaspin import yaspin
 
 from ncbi_download import download_fasta, get_url, valid_accession
 from utils import _ensure_dir
 
 
 def main(accessions: list[str], outdir: Path):
-    for accession in map(lambda x: x.strip(), accessions):
-        if not valid_accession(accession):
-            log.error(f"Invalid accession number: {accession}")
-            continue
+    accessions = set(map(lambda x: x.strip(), accessions))
 
-        url = get_url(accession)
+    num_accessions = len(accessions)
+    placeholder = f"Downloading {num_accessions} accessions"
 
-        log.info(f"Downloading {accession}")
-        fasta = download_fasta(url, accession, outdir)
-        log.info(f"Downloaded {accession} to {fasta}")
+    err = False
+
+    with yaspin(text=placeholder, color="cyan", timer=True) as sp:
+        for i, accession in enumerate(accessions, start=1):
+            if not valid_accession(accession):
+                sp.write(f"{accession} not a valid accession. Skipping.")
+                err = True
+                continue
+
+            url = get_url(accession)
+
+            _ = download_fasta(url, accession, outdir)
+            sp.write(f"{accession} ✓")
+            sp.text = f"{placeholder} ({i}/{num_accessions})"
+
+    match err:
+        case True:
+            sp.fail("Some accessions failed")
+        case False:
+            sp.ok()
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    log = logging.getLogger(__name__)
-
     parser = argparse.ArgumentParser(
         description="Download NCBI FASTA file(s) from nuccore"
     )
