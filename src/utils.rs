@@ -1,11 +1,10 @@
-use indicatif::{ProgressBar, ProgressStyle};
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::{RetryTransientMiddleware, policies::ExponentialBackoff};
-use std::path::Path;
-use std::time::Duration;
-
-use crate::errors::AppError;
 use std::collections::HashSet;
+use std::path::Path;
+
+use crate::args::Format;
+use crate::errors::AppError;
 
 pub fn ensure_dir(path: &Path) -> Result<(), std::io::Error> {
     if !path.exists() {
@@ -14,29 +13,14 @@ pub fn ensure_dir(path: &Path) -> Result<(), std::io::Error> {
     Ok(())
 }
 
-pub fn get_url(accession: &str) -> String {
+pub fn get_url(accession: &str, format: &Format) -> String {
     format!(
-        "https://www.ncbi.nlm.nih.gov/sviewer/viewer.fcgi?id={}&db=nuccore&report=fasta&retmode=text",
-        accession
+        "https://www.ncbi.nlm.nih.gov/sviewer/viewer.fcgi?id={}&db=nuccore&report={}&retmode=text",
+        accession,
+        format.as_report_param()
     )
 }
 
-pub fn get_progress_bar(length: u64) -> ProgressBar {
-    let bar =
-        ProgressBar::new(length).with_message(format!("Downloading {} unique accesssions", length));
-    bar.set_style(
-        ProgressStyle::with_template(
-            "[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}",
-        )
-        .unwrap()
-        .progress_chars("##-"),
-    );
-    bar.enable_steady_tick(Duration::from_millis(200));
-
-    bar
-}
-
-/// Here, we want to add NCBI accession regex validation.
 pub fn accession_norm_filt(accessions: Vec<String>) -> Result<HashSet<String>, AppError> {
     let normfilt: HashSet<String> = accessions
         .iter()
