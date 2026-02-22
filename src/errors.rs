@@ -13,6 +13,9 @@ pub enum AppError {
     #[error("Download error: {0}")]
     StatusCodeError(String),
 
+    #[error("Invalid response (accession likely does not exist): {0}")]
+    InvalidResponseError(String),
+
     #[error("No valid accessions provided")]
     EmptyAccessionList,
 }

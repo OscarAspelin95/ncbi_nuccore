@@ -10,10 +10,38 @@ use std::time::Duration;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 
+/// Validate that the first bytes of the response look like the expected format.
+/// NCBI returns HTTP 200 even for invalid accessions, but the body will contain
+/// an error message (often HTML) instead of valid sequence data.
+fn validate_first_bytes(bytes: &[u8], format: &Format) -> Result<(), AppError> {
+    let trimmed = match std::str::from_utf8(bytes) {
+        Ok(s) => s.trim_start(),
+        Err(_) => {
+            return Err(AppError::InvalidResponseError(
+                "response is not valid UTF-8".to_string(),
+            ));
+        }
+    };
+
+    let valid = match format {
+        Format::Fasta => trimmed.starts_with('>'),
+        Format::Genbank => trimmed.starts_with("LOCUS"),
+        Format::Gff3 => trimmed.starts_with("##gff-version"),
+    };
+
+    if !valid {
+        let preview = &trimmed[..trimmed.len().min(200)];
+        return Err(AppError::InvalidResponseError(preview.to_string()));
+    }
+
+    Ok(())
+}
+
 async fn download_file(
     client: &ClientWithMiddleware,
     url: &str,
     file_path: &Path,
+    format: &Format,
 ) -> Result<(), AppError> {
     let response = client.get(url).send().await?;
 
@@ -29,10 +57,24 @@ async fn download_file(
 
     let mut file = File::create(file_path).await?;
     let mut stream = response.bytes_stream();
+    let mut first_chunk = true;
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk?;
+
+        if first_chunk {
+            validate_first_bytes(&chunk, format)?;
+            first_chunk = false;
+        }
+
         file.write_all(&chunk).await?;
+    }
+
+    if first_chunk {
+        // No chunks received at all — empty response
+        return Err(AppError::InvalidResponseError(
+            "empty response".to_string(),
+        ));
     }
 
     file.flush().await?;
@@ -83,9 +125,11 @@ pub async fn download_files(
             let file_name = format!("{}{}", accession, format.file_extension());
             let file_path = accession_dir.join(&file_name);
 
-            match download_file(&client, &url, &file_path).await {
+            match download_file(&client, &url, &file_path, format).await {
                 Ok(()) => {}
                 Err(e) => {
+                    // Remove partial/invalid file
+                    let _ = tokio::fs::remove_file(&file_path).await;
                     all_ok = false;
                     spinner.set_message(format!(
                         "{} {} ({}): {}",
